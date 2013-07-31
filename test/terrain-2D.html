@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html>
+<head>
+
+<script src="../external/require.js"></script>
+<script>
+
+require.config({
+	baseUrl: "../",
+	urlArgs: "bust=" +  (new Date()).getTime()
+});
+
+</script>
+<script>
+
+	define(
+		'jquery',
+		["external/jquery-1.8.0"],
+		function() {
+			return window.jQuery;
+		}
+	);
+	
+</script>
+
+</head>
+<body>
+
+	<script>
+
+		require(
+			['jquery','Terrain','test/World'],
+			function($,Terrain,World) {
+
+				var keyCodes = {
+					ARROW_LEFT: 37,
+					ARROW_UP: 38,
+					ARROW_RIGHT: 39,
+					ARROW_DOWN: 40
+				};
+
+				
+				function Player(x,y) {
+					this._x = x;
+					this._y = y;
+					this._z = 1;
+					this._moveHandlers = [];
+					
+					var pl = this;
+					$('body').keydown(function(e) {
+						var v = {x: 0, y: 0};
+						if(e.keyCode == keyCodes.ARROW_LEFT)
+							v.x--;
+						if(e.keyCode == keyCodes.ARROW_RIGHT)
+							v.x++;
+						if(e.keyCode == keyCodes.ARROW_UP)
+							v.y--;
+						if(e.keyCode == keyCodes.ARROW_DOWN)
+							v.y++;
+						pl._move(v);
+						e.preventDefault();
+					});
+				}
+				Player.prototype.getPoint = function() {
+					return {
+						x: this._x,
+						y: this._y,
+						z: this._z
+					};
+				}
+				Player.prototype.onMove = function(handler) {
+					this._moveHandlers.push(handler);
+				}
+				Player.prototype._move = function(vector) {
+					if(vector.x != 0 || vector.y != 0) {
+						this._x += vector.x;
+						this._y += vector.y;
+						var pl = this;
+						for(var i in this._moveHandlers) {
+							(function() {
+								var handler = pl._moveHandlers[i];
+								window.setTimeout(
+									function() { handler(this._x,this._y); },
+									0
+								);
+							})();
+						}
+					}
+				}
+				
+				function PlayerView(player,worldView) {
+					this._player = player;
+					this._worldView = worldView;
+					player.onMove(
+						function(x,y) {
+							pv._draw();
+						}
+					);
+					this._draw();
+				}
+				PlayerView.prototype._draw = function() {
+					var loc = this._player.getPoint();
+					var p1 = {x: loc.x-20, y: loc.y-20};
+					var p2 = {x: loc.x+20, y: loc.y+20};
+					this._worldView.drawRect(p1,p2);
+					this._worldView._ctx.beginPath();
+					this._worldView._ctx.arc(loc.x, loc.y, 5, 0, 2 * Math.PI, false);
+					this._worldView._ctx.fillStyle = "#8ED6FF";
+					this._worldView._ctx.fill();
+				}
+				
+
+				function WorldView(world,wPx,hPx) {
+					this._world = world;
+					
+					this._$main = $('<canvas width="' + wPx + '" height="' + hPx + '"></canvas>');
+					this._ctx = this._$main[0].getContext('2d');
+				}
+				WorldView.prototype.getElement = function() {
+					return this._$main[0];
+				}
+				WorldView.prototype.drawRect = function(ulPoint,brPoint) {
+					var points = [];
+					for(var y=ulPoint.y; y<=brPoint.y; y++) {
+						for(var x=ulPoint.x; x<=brPoint.x; x++) {
+							points.push({x:x,y:y});
+						}
+					}
+					this._world.setZs(points);
+					//console.info(points);
+					for(var i in points) {
+						this._drawPoint(points[i]);
+					}
+				}		
+				WorldView.prototype._drawPoint = function(point) {
+					var val = Math.floor(255*point.z);
+					this._ctx.fillStyle = "rgba(" + val + "," + val + "," + val + ",1)";
+					this._ctx.fillRect(point.x,point.y,1,1);
+				}
+
+				
+				
+				var width = $(window).width();
+				var height = $(window).height();
+				var w = new World("blender",500,500,1,10);
+				var wv = new WorldView(w,width,height);
+				var elem = wv.getElement();
+				elem.style.position = "absolute";
+				elem.style.top = 0;
+				elem.style.left = 0;
+				$('body').append(elem);
+				
+				var p = new Player(width/2,height/2);
+				var pv = new PlayerView(p,wv);
+				
+				
+			}
+		);
+	
+	</script>
+
+</body>
+</html>

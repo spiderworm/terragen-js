@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html>
+<head>
+
+<title>Terrain 3D testing</title>
+
+<style>
+	html, body {
+		margin: 0;
+		padding: 0;
+	}
+	cavas {
+		margin: 0;
+		padding: 0;
+	}
+</style>
+
+<script src="../external/require.js"></script>
+<script>
+
+require.config({
+	baseUrl: "../",
+	urlArgs: "bust=" +  (new Date()).getTime()
+});
+
+</script>
+<script>
+
+	define(
+		'THREE',
+		["external/Three.js/Three"],
+		function() {
+			return window.THREE;
+		}
+	);
+
+	define(
+		'jquery',
+		["external/jquery-1.8.0"],
+		function() {
+			return window.jQuery;
+		}
+	);
+	
+</script>
+
+</head>
+<body>
+
+	<script>
+
+		require(
+			['jquery','THREE','external/Three.js/THREEx.KeyboardState','external/Three.js/extraGeometry','test/World','Timeline'],
+			function($,THREE,KeyboardState,extraGeometry,World,Timeline) {
+
+				var keyboard = new KeyboardState();
+					
+				function WorldCamera(world,position,fov,ratio,min,max) {
+					this._world = world;
+					this._moveHandlers = [];
+					var camera = new THREE.PerspectiveCamera(fov,ratio,min,max);
+					camera.position = position;
+
+					camera.lookAt(new THREE.Vector3(0,0,0));
+					
+					this._threeCam = camera;
+					this._moveRate = 20;
+				}
+				WorldCamera.prototype.getThreeCamera = function() {
+					return this._threeCam;
+				}
+				WorldCamera.prototype.update = function(secs) {
+					var mvx = 0;
+					var mvy = 0;
+					if(keyboard.pressed("W"))
+						mvy += this._moveRate * secs;
+					if(keyboard.pressed("A"))
+						mvx -= this._moveRate * secs;
+					if(keyboard.pressed("S"))
+						mvy -= this._moveRate * secs;
+					if(keyboard.pressed("D"))
+						mvx += this._moveRate * secs;
+					this._move(mvx,mvy);
+				}
+				WorldCamera.prototype.onMove = function(handler) {
+					this._moveHandlers.push(handler);
+				}
+				WorldCamera.prototype._move = function(x,y) {
+					if(x !== 0 || y !== 0) {
+						var pos = this._threeCam.position;
+						pos.x += x;
+						pos.y += y;
+						pos.z = this._world.getZ(pos.x,pos.y) + 50;
+						var handlers = this._moveHandlers;
+						for(var i in handlers) {
+							(function() {
+								var h = handlers[i];
+								setTimeout(function() { h(pos.x,pos.y); }, 0);
+							})();
+						}
+					}
+				}
+			
+			
+			
+			
+			
+				function GroundView(world) {
+					window.gv = this;
+					this._world = world;
+					this._chunks = {};
+					this._threeMesh = new THREE.Mesh(new THREE.Geometry());
+					this._chunkSize = 16;
+				}
+				GroundView.prototype.getThreeMesh = function() {
+					return this._threeMesh;
+				}
+				GroundView.prototype.showRect = function(realULX,realULY,realBRX,realBRY) {
+					var minX = this._toChunkCoord(realULX);
+					var minY = this._toChunkCoord(realULY);
+					var maxX = this._toChunkCoord(realBRX);
+					var maxY = this._toChunkCoord(realBRY);
+				
+					var chunk;
+					for(var i in this._chunks) {
+						chunk = this._chunks[i];
+						if(chunk.maxX < minX || chunk.minX > maxX || chunk.maxY < minY || chunk.minY > maxY) {
+							chunk.hide();
+						}
+					}
+				
+					for(var y=minY; y<maxY; y++) {
+						for(var x=minX; x<maxX; x++) {
+							this._show(x,y);
+						}
+					}
+
+				}
+				GroundView.prototype.show = function(realX,realY) {
+					var x = this._toChunkCoord(realX);
+					var y = this._toChunkCoord(realY);
+
+					this._show(x,y);
+				}
+				GroundView.prototype._show = function(x,y) {
+					x = Math.floor(x);
+					y = Math.floor(y);
+					if(this._chunks[x + ',' + y])
+						this._chunks[x + ',' + y].show();
+					else
+						this._addChunk(x,y);
+				}
+				GroundView.prototype._toChunkCoord = function(coord) {
+					return coord/this._chunkSize;
+				}
+				GroundView.prototype._addChunk = function(x,y) {
+					var geo = new extraGeometry.XYPlaneGeometry(this._chunkSize, this._chunkSize, Math.floor(.5*this._chunkSize), Math.floor(.5*this._chunkSize));
+				
+					var newVerts = [];
+					var vert;
+					for(var i in geo.vertices) {
+						vert = geo.vertices[i];
+						newVerts.push(new THREE.Vector3(vert.x + x*this._chunkSize,vert.y + y*this._chunkSize,0));
+					}
+					
+					this._world.setZs(newVerts);
+					geo.vertices = newVerts;
+					
+					var groundMaterial = new THREE.MeshLambertMaterial({ 
+						wireframe: true
+						//map: THREE.ImageUtils.loadTexture('terrain.jpg')
+					});
+
+					var groundMesh = new THREE.Mesh(geo,groundMaterial);
+					groundMesh.castShadow = true;
+					groundMesh.receiveShadow  = true;
+					
+					var mainMesh = this._threeMesh;
+					
+					var chunk = {
+						x: x,
+						y: y,
+						minX: x-.5,
+						maxX: x+.5,
+						minY: y-.5,
+						maxY: y+.5,
+						mesh: groundMesh,
+						hide: function() {
+							mainMesh.remove(this.mesh);
+						},
+						show: function() {
+							mainMesh.add(this.mesh);
+						}
+					};
+					
+					this._chunks[x + ',' + y] = chunk;
+					chunk.show();
+
+				}
+				GroundView.prototype._deleteChunk = function(x,y) {
+					if(this._chunks[x + ',' + y]) {
+						this._threeMesh.remove(this._chunks[x + ',' + y].mesh);
+						delete this._chunks[x + ',' + y];
+					}
+				}
+			
+			
+			
+			
+			
+			
+			
+			
+			
+				function WorldView(world,wPx,hPx) {
+					this._world = world;
+					
+					scene = new THREE.Scene();
+
+					var worldInfo = world.getInfo();
+					
+					var camPos = new THREE.Vector3(0,-50,worldInfo.height*1);
+					var worldCam = new WorldCamera( world, camPos, 75, wPx/hPx, 1, 100000 );
+					scene.add(worldCam.getThreeCamera());
+
+					var groundView = new GroundView(world);
+					scene.add(groundView.getThreeMesh());
+
+					function updateGroundForCameraPos(x,y) {
+						groundView.showRect(x-200,y,x+200,y+150);
+					}
+					
+					worldCam.onMove(updateGroundForCameraPos);
+					
+					updateGroundForCameraPos(camPos.x,camPos.y);
+					
+					var lightTarget = new THREE.Object3D();
+					lightTarget.position.set(0,0,-100);
+					scene.add(lightTarget);
+					
+					function Light(intensity,color,x,y,z) {
+						var light = new THREE.DirectionalLight(color, intensity, 0);
+						//light.shadowCameraVisible = true;
+						light.target = lightTarget;
+						light.position.set(x,y,z);
+						scene.add( light );
+						return light;
+					}
+					
+					//window.light1 = new Light(.25,0xdefaff,100,100,40);
+					//window.light2 = new Light(.25,0xdefaff,-100,100,40);
+					//window.light3 = new Light(.25,0xdefaff,100,-100,40);
+					var sun = window.sun = new Light(1.5,0xfff09f,100,150,60);
+					sun.castShadow = true;
+					
+					
+					
+					/*
+					var light = new THREE.SpotLight(0xffffff);
+					window.light2 = light;
+					light.shadowCameraVisible = true;
+					light.target = lightTarget;
+					light.position.set(0, 0, 800);
+					light.castShadow = true;
+					scene.add( light );
+					*/
+					
+					renderer = new THREE.WebGLRenderer();
+					renderer.shadowMapEnabled = true;
+					renderer.shadowMapSoft = true;
+					renderer.setSize(wPx,hPx);
+					
+					this._$main = $(renderer.domElement);
+					this._ctx = this._$main[0].getContext('2d');
+
+					function onFrame(secs) {
+						worldCam.update(secs);
+						//updateSun(secs);
+						renderer.render( scene, worldCam.getThreeCamera() );
+					}
+					
+					var time = 0;
+					
+					
+					var sunTarget = new THREE.Object3D();
+					sunTarget.position.set(0,0,-210);
+					scene.add(sunTarget);
+					sun.target = sunTarget;
+					
+					function updateSun(secs) {
+						time += secs;
+						sun.position.x = 200*Math.cos(time*.5);
+						sun.position.z = 200*Math.sin(time*.5);
+					}
+					
+					var timeline = new Timeline();
+					timeline.everyFrame(onFrame);
+
+					
+				}
+				WorldView.prototype.getElement = function() {
+					return this._$main[0];
+				}
+				
+				
+				var w = new World('katy',30000,30000,100);
+				
+				var width = $(window).width();
+				var height = $(window).height();
+				var wv = new WorldView(w,width,height);
+				var elem = wv.getElement();
+				elem.style.position = "absolute";
+				elem.style.top = 0;
+				elem.style.left = 0;
+				$('body').append(elem);
+				
+
+			}
+		);
+	
+	</script>
+
+</body>
+</html>
